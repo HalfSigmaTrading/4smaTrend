@@ -1,0 +1,80 @@
+//@version=6
+// NQ 1 min scalping - 7 for 7 winners strategy
+// From Quant Trade Edge
+// https://www.youtube.com/watch?v=lhW5czmfc14 and https://www.youtube.com/watch?v=6Ve20SIXURM
+strategy("4 SMA trend strategy", overlay=true, initial_capital=20000, default_qty_type=strategy.fixed, default_qty_value=1, margin_long=0, margin_short=0)
+
+// Inputs
+heures_trading = input.string("0300-1530", "Heures de trading NY EST", group="Time Filter")
+d_monday        = input.bool(title="Monday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_tuesday       = input.bool(title="Tuesday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_wednesday     = input.bool(title="Wednesday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_thursday      = input.bool(title="Thursday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_friday        = input.bool(title="Friday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+longs_allowed = input.bool(true, "LONGs allowed", group="Type of positions")
+shorts_allowed =input.bool(true, "SHORTs allowed", group="Type of positions")
+
+smaPeriod1 = input.int(title='SMA 1 Period', defval=9, group="Algo configuration")
+smaPeriod2 = input.int(title='SMA 2 Period', defval=25, group="Algo configuration")
+smaPeriod3 = input.int(title='SMA 3 Period', defval=50, group="Algo configuration")
+smaPeriod4 = input.int(title='SMA 4 Period', defval=75, group="Algo configuration")
+
+
+
+// InSession() determines if a price bar falls inside the specified session (and day)
+days = d_monday ? "2" : ""
+days := days + (d_tuesday ? "3" : "")
+days := days + (d_wednesday ? "4" : "")
+days := days + (d_thursday ? "5" : "")
+days := days + (d_friday ? "6" : "")
+
+// Restriction des heures de trading
+inKillzone = not na(time(timeframe.period, heures_trading + ":" + days, "America/New_York"))
+
+// Vérifier qu'aucun trade n'est en cours
+noTrade = strategy.position_size == 0
+
+// Compute indicators
+
+var bool pending_order = false
+sma1 = ta.sma(ohlc4, smaPeriod1)
+sma2 = ta.sma(ohlc4, smaPeriod2)
+sma3 = ta.sma(ohlc4, smaPeriod3)
+sma4 = ta.sma(ohlc4, smaPeriod4)
+trailingSMA = sma4
+
+// Conditions d'entrées
+margin = 1
+lookback = 3
+// Pentes pas trop prononcées
+maxdiff = 1.01
+mindiff = 1.0005
+sma1_smooth = sma1 / sma1[lookback] < maxdiff and sma1 / sma1[lookback] > mindiff
+sma2_smooth = sma2 / sma2[lookback] < maxdiff and sma2 / sma2[lookback] > mindiff
+sma3_smooth = sma3 / sma3[lookback] < maxdiff and sma3 / sma3[lookback] > mindiff
+sma4_smooth = sma4 / sma4[lookback] < maxdiff and sma4 / sma4[lookback] > mindiff
+
+
+uptrend = (sma1 > sma1[lookback]) and (sma2 > sma2[lookback]) and (sma3 > sma3[lookback]) and (sma4 > sma4[lookback])
+downtrend = (sma1 < sma1[lookback]) and (sma2 < sma2[lookback]) and (sma3 < sma3[lookback]) and (sma4 < sma4[lookback])
+longEntry = (close > sma1) and (open > sma1) and (sma1 > sma2 + margin) and (sma2 > sma3 + margin) and (sma3 > sma4 + margin) and uptrend and noTrade and longs_allowed
+shortEntry = (close < sma1) and (open < sma1) and (sma1 < sma2 - margin) and (sma2 < sma3- margin) and (sma3 < sma4- margin) and downtrend and noTrade and shorts_allowed
+
+if shortEntry and inKillzone
+    strategy.entry("Short", strategy.short, qty=1)
+    strategy.exit("Short Exit", from_entry="Short", stop=trailingSMA)
+
+if longEntry and inKillzone
+    strategy.entry("Long", strategy.long, qty=1)
+    strategy.exit("Long Exit", from_entry="Long", stop=trailingSMA)
+
+
+// 1 min SL trailing
+if (strategy.position_size != 0)
+    if close > sma4
+        strategy.exit("Long Exit", from_entry="Long", stop= trailingSMA)
+    else
+        strategy.exit("Short Exit", from_entry="Short", stop= trailingSMA)
+
+// Plot current position
+bgcolor(strategy.position_size > 0 ? color.new(color.blue, 90) : strategy.position_size < 0 ? color.new(color.blue, 90) : na)
